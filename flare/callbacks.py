@@ -7,10 +7,8 @@ import numpy as np
 
 from flare.history import ModelHistory
 
-OptionalLogs = Optional[Dict[str, Any]]
 
 class Callback:
-
     def on_epoch_begin(self, epoch: int, logs: ModelHistory) -> None:
         pass
 
@@ -30,7 +28,6 @@ class Callback:
 
 
 class CallbacksContainer:
-
     def __init__(self, callbacks: List[Callback]):
         self.callbacks = callbacks or list()
 
@@ -55,13 +52,6 @@ class CallbacksContainer:
 
 
 class ProgressBar(Callback):
-
-    @staticmethod
-    def _get_metrics(logs: Dict[str, List[float]]) -> float:
-        return {key: value[-1]
-                for key, value in logs.items()
-                if 'loss' in key or 'acc' in key}
-
     def __init__(self, n_batches: int, n_epochs: int):
         self.n_batches = n_batches
         self.n_epochs = n_epochs
@@ -71,6 +61,12 @@ class ProgressBar(Callback):
         self.progbar = None
 
         super().__init__()
+
+    @staticmethod
+    def _get_metrics(logs: Dict[str, List[float]]) -> float:
+        return {key: value[-1]
+                for key, value in logs.items()
+                if 'loss' in key or 'acc' in key}
 
     def on_epoch_begin(self, epoch: int, logs: ModelHistory) -> None:
         self.progbar = tqdm.tqdm(total=self.n_batches, unit=' batches')
@@ -94,7 +90,6 @@ class ProgressBar(Callback):
 
 
 class MetricMonitorCallback(Callback):
-
     def get_metric(self, utility: str, metric: str, logs: ModelHistory) -> float:
         if metric not in logs.val_logs and metric not in logs.trn_logs:
             raise RuntimeError(f'Metric for {utility} ({metric}) not in the ' +
@@ -105,8 +100,11 @@ class MetricMonitorCallback(Callback):
 
 
 class EarlyStopping(MetricMonitorCallback):
-
-    def __init__(self, patience: int, delta: float, metric_name: str, verbosity: int = 0):
+    def __init__(self,
+                 patience: int,
+                 delta: float,
+                 metric_name: str,
+                 verbosity: int = 0):
         self.metric_name = metric_name
         self.patience = patience
         self.ticks = 0
