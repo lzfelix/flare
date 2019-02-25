@@ -1,23 +1,30 @@
+import logging
 from typing import List, Dict, Any, Optional
 
 import tqdm
+import numpy as np
 
 from flare.history import ModelHistory
 
 OptionalLogs = Optional[Dict[str, Any]]
 
 class Callback:
-    def on_epoch_begin(self, epoch: int, ModelHistory) -> None:
+    def on_epoch_begin(self, epoch: int, logs: ModelHistory) -> None:
         pass
 
-    def on_epoch_end(self, epoch: int, ModelHistory) -> None:
+    def on_epoch_end(self, epoch: int, logs: ModelHistory) -> None:
         pass
 
-    def on_batch_begin(self, batch: int, ModelHistory) -> None:
+    def on_batch_begin(self, batch: int, logs: ModelHistory) -> None:
         pass
 
-    def on_batch_end(self, batch: int, ModelHistory) -> None:
+    def on_batch_end(self, batch: int, logs: ModelHistory) -> None:
         pass
+
+    @staticmethod
+    def _log(message: str, v_threshold: int, verbose_level: int = 1):
+        if verbose_level <= v_threshold:
+            logging.info(message)
 
 
 class CallbacksContainer:
@@ -46,7 +53,6 @@ class CallbacksContainer:
 
 
 class ProgressBar(Callback):
-    # https://github.com/ncullen93/torchsample/blob/master/torchsample/callbacks.py
 
     @staticmethod
     def _get_metrics(logs: Dict[str, List[float]]) -> float:
@@ -83,3 +89,37 @@ class ProgressBar(Callback):
     def on_batch_end(self, batch: int, logs: ModelHistory) -> None:
         trn_metrics = self._get_metrics(logs.trn_logs)
         self.progbar.set_postfix(trn_metrics)
+
+
+class EarlyStopping(Callback):
+    def __init__(self, patience: int, delta: float, metric: str, verbosity: int = 0):
+        self.metric = metric
+        self.patience = patience
+        self.ticks = 0
+        self.delta = delta
+        self.previous_metric = np.inf
+        self.verbosity = verbosity
+    
+    def on_epoch_end(self, epoch: int, logs: ModelHistory) -> None:
+        metric = self.metric
+        if metric not in logs.val_logs and metric not in logs.trn_logs:
+            raise RuntimeError(f'Metric for patience ({metric}) not in the ' +
+                                'model')
+        
+        current_metric = logs.val_logs.get(metric) or logs.trn_logs.get(metric)
+        current_metric = current_metric[-1]
+        current_delta = self.previous_metric - current_metric
+
+        if current_delta < self.delta:
+            self.ticks += 1
+            self._log(f'{metric} did not improve from {self.previous_metric} ' +
+                        f'in {self.ticks} epochs.', self.verbosity)
+            
+            if self.ticks >= self.patience:
+                logs.set_stop_training()
+        else:
+            self._log(f'{metric} improved from {self.previous_metric} to ' +
+                      f'{current_metric}', self.verbosity)
+
+            self.previous_metric = current_metric
+            self.ticks = 0

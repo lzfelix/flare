@@ -119,9 +119,11 @@ def train(model: nn.Module,
         model.train()
 
         model_history.append_dev_logs('val_loss', val_loss)
-        model_history.append_dev_logs('val_acc', val_accuracy)
+        model_history.append_dev_logs('val_accuracy', val_accuracy)
 
         callbacks_container.on_epoch_end(epoch, model_history)
-    
+        if model_history.should_stop_training():
+            break
+
     model_history.close(n_epochs)
     return model_history

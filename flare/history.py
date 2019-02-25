@@ -5,6 +5,7 @@ class ModelHistory:
         self.n_epochs = 0
         self.trn_logs = defaultdict(list)
         self.val_logs = defaultdict(list)
+        self._stop_training = False
     
     def close(self, n_epochs: int) -> None:
         self.n_epochs = n_epochs
@@ -14,3 +15,9 @@ class ModelHistory:
     
     def append_dev_logs(self, key: str, value: float) -> None:
         self.val_logs[key].append(value)
+
+    def set_stop_training(self) -> None:
+        self._stop_training = True
+
+    def should_stop_training(self) -> bool:
+        return self._stop_training
