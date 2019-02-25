@@ -5,7 +5,7 @@ from torch import nn, optim
 from torch.nn import functional as F
 
 from flare import trainer
-from flare.callbacks import EarlyStopping
+from flare.callbacks import EarlyStopping, Checkpoint
 
 
 class SimpleNN(nn.Module):
@@ -34,11 +34,12 @@ if __name__ == '__main__':
     optimizer = optim.SGD(model.parameters(), lr=1e-1)
     loss_fn = nn.CrossEntropyLoss()
 
-    patience = EarlyStopping(3, 0.001, 'val_loss', 1)
+    patience = EarlyStopping(3, 0.001, 'val_loss', verbosity=1)
+    checkpoint = Checkpoint('val_loss', 0.001, './model', verbosity=1)
 
     logs = trainer.train(model, X, y,
                          loss_fn, optimizer,
                          n_epochs=25,
                          batch_size=32,
                          validation_frac=0.01,
-                         callbacks=[patience])
+                         callbacks=[patience, checkpoint])

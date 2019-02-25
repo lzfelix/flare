@@ -66,7 +66,7 @@ def train(model: nn.Module,
     ticker = ProgressBar(n_batches, n_epochs)
     callbacks_container.append(ticker)
 
-    model_history = ModelHistory()
+    model_history = ModelHistory(model)
     for epoch in range(1, n_epochs + 1):
         callbacks_container.on_epoch_begin(epoch, model_history)
         epoch_loss = 0

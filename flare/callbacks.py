@@ -2,6 +2,7 @@ import logging
 from typing import List, Dict, Any, Optional
 
 import tqdm
+import torch
 import numpy as np
 
 from flare.history import ModelHistory
@@ -9,6 +10,7 @@ from flare.history import ModelHistory
 OptionalLogs = Optional[Dict[str, Any]]
 
 class Callback:
+
     def on_epoch_begin(self, epoch: int, logs: ModelHistory) -> None:
         pass
 
@@ -91,9 +93,21 @@ class ProgressBar(Callback):
         self.progbar.set_postfix(trn_metrics)
 
 
-class EarlyStopping(Callback):
-    def __init__(self, patience: int, delta: float, metric: str, verbosity: int = 0):
-        self.metric = metric
+class MetricMonitorCallback(Callback):
+
+    def get_metric(self, utility: str, metric: str, logs: ModelHistory) -> float:
+        if metric not in logs.val_logs and metric not in logs.trn_logs:
+            raise RuntimeError(f'Metric for {utility} ({metric}) not in the ' +
+                                'model')
+
+        current_metric = logs.val_logs.get(metric) or logs.trn_logs.get(metric)
+        return current_metric[-1]
+
+
+class EarlyStopping(MetricMonitorCallback):
+
+    def __init__(self, patience: int, delta: float, metric_name: str, verbosity: int = 0):
+        self.metric_name = metric_name
         self.patience = patience
         self.ticks = 0
         self.delta = delta
@@ -101,25 +115,61 @@ class EarlyStopping(Callback):
         self.verbosity = verbosity
     
     def on_epoch_end(self, epoch: int, logs: ModelHistory) -> None:
-        metric = self.metric
-        if metric not in logs.val_logs and metric not in logs.trn_logs:
-            raise RuntimeError(f'Metric for patience ({metric}) not in the ' +
-                                'model')
-        
-        current_metric = logs.val_logs.get(metric) or logs.trn_logs.get(metric)
-        current_metric = current_metric[-1]
+        current_metric = self.get_metric('patience', self.metric_name, logs)
         current_delta = self.previous_metric - current_metric
 
         if current_delta < self.delta:
             self.ticks += 1
-            self._log(f'{metric} did not improve from {self.previous_metric} ' +
-                        f'in {self.ticks} epochs.', self.verbosity)
-            
+            self._log(f'{self.metric_name} did not improve from ' +
+                      f'{self.previous_metric} in {self.ticks} epochs.',
+                      self.verbosity)
+
             if self.ticks >= self.patience:
                 logs.set_stop_training()
         else:
-            self._log(f'{metric} improved from {self.previous_metric} to ' +
-                      f'{current_metric}', self.verbosity)
+            self._log(f'{self.metric_name} improved from {self.previous_metric} ' +
+                      f'to {current_metric}', self.verbosity)
 
             self.previous_metric = current_metric
             self.ticks = 0
+
+
+class Checkpoint(MetricMonitorCallback):
+
+    def __init__(self,
+                 metric_name: str,
+                 min_delta: float,
+                 filename: str,
+                 save_best: bool = True,
+                 weights_only: bool = False,
+                 verbosity: int = 0):
+        self.metric_name = metric_name
+        self.min_delta = min_delta
+
+        self.save_best = save_best
+        self.weights_only = weights_only
+        self.filename = filename
+        self.verbosity = verbosity
+
+        self.previous_metric = np.inf
+
+    def on_epoch_end(self, epoch: int, logs: ModelHistory) -> None:
+        current_metric = self.get_metric('patience', self.metric_name, logs)
+        current_delta = self.previous_metric - current_metric
+
+        if current_delta >= self.min_delta:
+            if self.save_best:
+                destination_filename = self.filename + '.pth'
+            else:
+                destination_filename = self.filename + f'_{epoch}.pth'
+
+            self.previous_metric = current_metric
+            self._log(f'Saving model {destination_filename} ' +
+                      f' - {self.metric_name} improved from ' +
+                      f'{self.previous_metric} to {current_metric}',
+                      self.verbosity)
+
+            if self.weights_only:
+                torch.save(logs.model.state_dict(), destination_filename)
+            else:
+                torch.save(logs.model, destination_filename)
