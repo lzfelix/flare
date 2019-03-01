@@ -11,6 +11,7 @@ setup(
         'numpy>=1.14.5',
         'torch>=1.0.0',
         'tqdm>=4.24.0'
-        'sklearn'
+        'sklearn',
+        'requests_futures>=0.9.9'
     ]
 )
