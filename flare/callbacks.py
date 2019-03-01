@@ -6,6 +6,7 @@ import torch
 import numpy as np
 
 from flare.history import ModelHistory
+from requests_futures.sessions import FuturesSession
 
 
 class Callback:
@@ -19,6 +20,9 @@ class Callback:
         pass
 
     def on_batch_end(self, batch: int, logs: ModelHistory) -> None:
+        pass
+
+    def on_train_end(self) -> None:
         pass
 
     @staticmethod
@@ -49,6 +53,10 @@ class CallbacksContainer:
     def on_batch_end(self, batch: int, logs: ModelHistory) -> None:
         for callback in self.callbacks:
             callback.on_batch_end(batch, logs)
+
+    def on_train_end(self) -> None:
+        for callback in self.callbacks:
+            callback.on_train_end()
 
 
 class ProgressBar(Callback):
@@ -171,3 +179,42 @@ class Checkpoint(MetricMonitorCallback):
                 torch.save(logs.model.state_dict(), destination_filename)
             else:
                 torch.save(logs.model, destination_filename)
+
+
+class TelegramNotifier(MetricMonitorCallback):
+
+    def __init__(self, bot_id: str, chat_id: str, metric_name: str, delta, max_workers: int = 1):
+        self.bot_id = bot_id
+        self.chat_id = chat_id
+        self.metric_name = metric_name
+        self.session = FuturesSession(max_workers=max_workers)
+        self.futures = []
+        self.delta = delta
+        self.previous_metric = np.inf
+
+    def on_epoch_end(self, epoch: int, logs: ModelHistory) -> None:
+
+        def _response_hook(resp, *args, **kwargs):
+            if resp.status_code != 200:
+                logging.warning('Failed to deliver Telegram message with ' +
+                                f'error code {resp.status_code}')
+
+        current_metric = self.get_metric('patience', self.metric_name, logs)
+        current_delta = self.previous_metric - current_metric
+
+        if current_delta >= self.delta:
+            msg = '{} improved from%20{}%20to%20{}'.format(self.metric_name,
+                                                           self.previous_metric,
+                                                           current_metric)
+            msg_url = 'https://api.telegram.org/bot{}/sendMessage?chat_id={}&text={}'.format(
+                self.bot_id, self.chat_id, msg
+            )
+
+            future = self.session.get(msg_url, hooks={
+                'response': _response_hook
+            })
+            self.futures.append(future)
+            self.previous_metric = current_metric
+
+    def on_train_end(self) -> None:
+        self.session.close()

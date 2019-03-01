@@ -126,4 +126,6 @@ def train(model: nn.Module,
             break
 
     model_history.close(n_epochs)
+    callbacks_container.on_train_end()
+
     return model_history
