@@ -41,4 +41,5 @@ if __name__ == '__main__':
                          loss_fn, optimizer,
                          n_epochs=25,
                          batch_size=32,
-                         validation_frac=0.01)
+                         validation_frac=0.01,
+                         callbacks=[patience, checkpoint])
