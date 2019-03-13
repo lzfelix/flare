@@ -1,8 +1,9 @@
 .idea/
 .DS_Store
-__pycache__
+data/
+examples/data/
+__pycache__/
 .vscode/
 *.egg-info/
 *.pth
 *.pt
-

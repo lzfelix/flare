@@ -94,7 +94,7 @@ class ProgressBar(Callback):
 
     def on_batch_end(self, batch: int, logs: ModelHistory) -> None:
         trn_metrics = self._get_metrics(logs.trn_logs)
-        self.progbar.set_postfix(trn_metrics)
+        self.progbar.set_postfix(trn_metrics, refresh=False)
 
 
 class MetricMonitorCallback(Callback):
