@@ -53,6 +53,7 @@ class CallbacksContainer:
     def on_batch_end(self, batch: int, logs: ModelHistory) -> None:
         for callback in self.callbacks:
             callback.on_batch_end(batch, logs)
+        logs.flush_batch_data()
 
     def on_train_end(self) -> None:
         for callback in self.callbacks:
@@ -71,18 +72,16 @@ class ProgressBar(Callback):
         super().__init__()
 
     @staticmethod
-    def _get_metrics(logs: Dict[str, List[float]]) -> float:
-        return {key: value[-1]
-                for key, value in logs.items()
-                if 'loss' in key or 'acc' in key}
+    def _get_latest_metrics(logs: Dict[str, List[float]]) -> float:
+        return {key: value[-1] for key, value in logs.items()}
 
     def on_epoch_begin(self, epoch: int, logs: ModelHistory) -> None:
         self.progbar = tqdm.tqdm(total=self.n_batches, unit=' batches')
         self.progbar.set_description(f'Epoch {epoch}/{self.n_epochs}')
 
     def on_epoch_end(self, epoch: int, logs: ModelHistory) -> None:
-        val_metrics = self._get_metrics(logs.val_logs)
-        trn_metrics = self._get_metrics(logs.trn_logs)
+        val_metrics = self._get_latest_metrics(logs.val_logs)
+        trn_metrics = self._get_latest_metrics(logs.trn_logs)
         trn_metrics.update(val_metrics)
 
         self.progbar.set_postfix(trn_metrics)
@@ -93,8 +92,7 @@ class ProgressBar(Callback):
         self.progbar.update(n=1)
 
     def on_batch_end(self, batch: int, logs: ModelHistory) -> None:
-        trn_metrics = self._get_metrics(logs.trn_logs)
-        self.progbar.set_postfix(trn_metrics, refresh=False)
+        self.progbar.set_postfix(logs.batch_data, refresh=False)
 
 
 class MetricMonitorCallback(Callback):

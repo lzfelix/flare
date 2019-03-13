@@ -7,9 +7,17 @@ class ModelHistory:
         self.val_logs = defaultdict(list)
         self._stop_training = False
         self.model = model
+
+        self.batch_data = defaultdict(list)
     
     def close(self, n_epochs: int) -> None:
         self.n_epochs = n_epochs
+    
+    def flush_batch_data(self) -> None:
+        self.batch_data = defaultdict(list)
+
+    def append_batch_data(self, batch_metrics) -> None:
+        self.batch_data.update(batch_metrics)
     
     def append_trn_logs(self, key: str, value: float) -> None:
         self.trn_logs[key].append(value)

@@ -40,10 +40,15 @@ def train_on_loader(model: nn.Module,
     callbacks_container.append(ProgressBar(len(train_gen), n_epochs))
 
     model_history = ModelHistory(model)
+
+    n_samples = len(train_gen.dataset)
     for epoch in range(1, n_epochs + 1):
         model.train()
         callbacks_container.on_epoch_begin(epoch, model_history)
 
+        epoch_loss = 0
+        epoch_accuracy = 0
+        seen_samples = 0
         for batch_id, (X_trn, y_trn) in enumerate(train_gen):
             callbacks_container.on_batch_begin(batch_id, model_history)
 
@@ -53,12 +58,21 @@ def train_on_loader(model: nn.Module,
             loss.backward()
             optimizer.step()
 
-            train_accuracy = metrics.accuracy_score(output.argmax(-1), y_trn)
+            # TODO: make this external
+            epoch_accuracy += torch.sum(output.argmax(-1) == y_trn).item()
 
-            model_history.append_trn_logs('loss', loss.item())
-            model_history.append_trn_logs('accuracy', train_accuracy)
+            # TODO: what if there are several inputs?
+            seen_samples += len(X_trn)
+            epoch_loss += loss.item()
 
+            model_history.append_batch_data({
+                'loss': epoch_loss / seen_samples,
+                'accuracy': epoch_accuracy / seen_samples
+            })
             callbacks_container.on_batch_end(batch_id, model_history)
+
+        model_history.append_trn_logs('loss', epoch_loss / seen_samples)
+        model_history.append_trn_logs('accuracy', epoch_accuracy / seen_samples)
 
         if not val_gen:
             continue
@@ -75,6 +89,7 @@ def train_on_loader(model: nn.Module,
                 loss += loss_fn(output, y_val).item()
 
             n_samples = len(val_gen.dataset)
+
             model_history.append_dev_logs('val_loss', loss / n_samples)
             model_history.append_dev_logs('val_accuracy', correct / n_samples)
         model.train()
