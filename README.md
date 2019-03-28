@@ -1,6 +1,9 @@
 # Flare
 _:fire: Flare - Making PyTorch broader_
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-brightgreen.svg)](https://github.com/lzfelix/flare/blob/master/LICENSE)
+
+
 PyTorch is a very nice framework, since it allows us to have complete control over neural models
 due to its eager execution. This allows one to easily change computational paths dinamically,
 diferentlly from what is done in TensorFlow and in Keras. However, developing a PyTorch model
@@ -56,7 +59,7 @@ for PyTorch, as we believe that this would obfuscate PyTorch capabilities into a
 just want to help with the model training part. Below is a list with some Keras-like frameworks for PyTorch:
 
 * [Poutyne](https://github.com/GRAAL-Research/poutyne) (formerly PyToune)
-* [MagNet](https://github.com/MagNet-DL/magnet).
+* [MagNet](https://github.com/MagNet-DL/magnet)
 
 ## How to install
 
