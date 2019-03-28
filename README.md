@@ -61,6 +61,12 @@ just want to help with the model training part. Below is a list with some Keras-
 * [Poutyne](https://github.com/GRAAL-Research/poutyne) (formerly PyToune)
 * [MagNet](https://github.com/MagNet-DL/magnet)
 
+## Currently implemented features
+
+* Training loop for `DataLoader`
+* Training loop for data in tensors
+* Callbacks: ProgressBar, Early Stopping, Checkpoint, TelegramNotifyer, Custom
+
 ## How to install
 
 Currently, Flare can only be installed from GitHub, i.e.:
