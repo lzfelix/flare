@@ -1,6 +1,4 @@
-import matplotlib
-matplotlib.use("TKAgg" ,warn=False, force=True)
-import matplotlib.pyplot as plt
+from typing import Dict
 
 import torch
 import torch.nn as nn
@@ -14,9 +12,10 @@ from flare import trainer
 LOG_INTERVAL = 100
 N_EPOCHS = 5
 
+
 def get_dataset(train=True):
     dataset = torchvision.datasets.MNIST('./data', train=train, download=True,
-                                        transform=torchvision.transforms.Compose([
+                                         transform=torchvision.transforms.Compose([
                                             torchvision.transforms.ToTensor(),
                                             torchvision.transforms.Normalize((0.1307, ), (0.1307, ))]
                                         ))
@@ -33,7 +32,7 @@ class Net(nn.Module):
         self.fc1 = nn.Linear(320, 50)
         self.fc2 = nn.Linear(50, 10)
     
-    def forward(self, x):
+    def forward(self, x: torch.Tensor):
         x = F.relu(F.max_pool2d(self.conv1(x), 2))
         x = F.relu(F.max_pool2d(self.dropout(self.conv2(x)), 2))
         x = x.view(-1, 320)
@@ -41,6 +40,10 @@ class Net(nn.Module):
         x = F.dropout(x, training=self.training)
         x = self.fc2(x)
         return F.log_softmax(x)
+
+    def metric(self, prediction: torch.Tensor, ground: torch.Tensor) -> Dict[str, float]:
+        amount_correct = torch.sum(prediction.argmax(-1) == ground).item()
+        return {'accuracy': amount_correct}
 
 
 if __name__ == '__main__':

@@ -81,10 +81,10 @@ class ProgressBar(Callback):
 
     def on_epoch_end(self, epoch: int, logs: ModelHistory) -> None:
         val_metrics = self._get_latest_metrics(logs.val_logs)
-        trn_metrics = self._get_latest_metrics(logs.trn_logs)
-        trn_metrics.update(val_metrics)
+        display_metrics = self._get_latest_metrics(logs.trn_logs)
+        display_metrics.update(val_metrics)
 
-        self.progbar.set_postfix(trn_metrics)
+        self.progbar.set_postfix(display_metrics)
         self.progbar.update()
         self.progbar.close()
 

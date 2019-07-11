@@ -1,4 +1,5 @@
 from typing import List, Optional, Any
+from collections import defaultdict
 
 import torch
 import numpy as np
@@ -6,12 +7,18 @@ import numpy as np
 from torch.optim import Optimizer
 from torch import nn
 from torch.utils.data import DataLoader
-from sklearn import metrics
+import sklearn
 
 from flare.callbacks import Callback, CallbacksContainer, ProgressBar
 from flare.history import ModelHistory
 
+
 _ceil = lambda x: int(np.ceil(x))
+
+
+def _normalize_metrics(metrics: dict, seen_samples: int):
+    return {m_name: m_value / seen_samples for m_name, m_value in metrics.items()}
+
 
 def train_on_loader(model: nn.Module,
                     train_gen: DataLoader,
@@ -19,6 +26,7 @@ def train_on_loader(model: nn.Module,
                     loss_fn: Any,
                     optimizer: Optimizer,
                     n_epochs: int,
+                    batch_first: bool = True,
                     callbacks: Optional[List[Callback]] = None) -> ModelHistory:
     """
     Helper function to train a model using torch DataLoader.
@@ -38,62 +46,73 @@ def train_on_loader(model: nn.Module,
 
     callbacks_container = CallbacksContainer(callbacks or [])
     callbacks_container.append(ProgressBar(len(train_gen), n_epochs))
+    batch_index = 0 if batch_first else 1
 
     model_history = ModelHistory(model)
-
-    n_samples = len(train_gen.dataset)
     for epoch in range(1, n_epochs + 1):
         model.train()
         callbacks_container.on_epoch_begin(epoch, model_history)
 
         epoch_loss = 0
-        epoch_accuracy = 0
         seen_samples = 0
-        for batch_id, (X_trn, y_trn) in enumerate(train_gen):
+        training_metrics = defaultdict(int)
+
+        for batch_id, batch_data in enumerate(train_gen):
             callbacks_container.on_batch_begin(batch_id, model_history)
 
+            # even if batch_data = [x, y], batch_features = [x] and batch_y = [y]
+            batch_features: list = batch_data[:-1]
+            batch_labels: list = batch_data[-1]
+
+            # All feature matrices should have the same amount of sample entries,
+            # hence we can take any of them to figure out the batch size
+            n_samples = batch_features[0].size(batch_index)
+
             optimizer.zero_grad()
-            output = model(X_trn)
-            loss = loss_fn(output, y_trn)
+            output = model(*batch_features)
+            loss = loss_fn(output, batch_labels)
             loss.backward()
             optimizer.step()
 
-            # TODO: make this external
-            epoch_accuracy += torch.sum(output.argmax(-1) == y_trn).item()
-
-            # TODO: what if there are several inputs?
-            seen_samples += len(X_trn)
+            seen_samples += n_samples
             epoch_loss += loss.item()
 
-            model_history.append_batch_data({
-                'loss': epoch_loss / seen_samples,
-                'accuracy': epoch_accuracy / seen_samples
-            })
+            # Metrics accumulator
+            batch_metrics = model.metric(output, batch_labels)
+            for m_name, m_value in batch_metrics.items():
+                training_metrics[m_name] += m_value
+
+            # Need to take care of the model loss separately
+            training_metrics['loss'] = epoch_loss
+
+            # model_history.append_batch_data(training_metrics)
+            model_history.append_batch_data(_normalize_metrics(training_metrics, seen_samples))
+
+            # print(metrics)
+            # metrics = {name: value / seen_samples for name, value in metrics.items()}
             callbacks_container.on_batch_end(batch_id, model_history)
 
-        model_history.append_trn_logs('loss', epoch_loss / seen_samples)
-        model_history.append_trn_logs('accuracy', epoch_accuracy / seen_samples)
+        model_history.append_trn_logs(_normalize_metrics(training_metrics, seen_samples))
 
+        # Just ignore the rest if there's no validation data
         if not val_gen:
             continue
 
         model.eval()
         with torch.no_grad():
-            correct = 0
-            loss = 0
-            for batch_id, (X_dev, y_val) in enumerate(val_gen):
-                output = model(X_dev)
+            valid_metrics = defaultdict(int)
+            for batch_id, batch_data in enumerate(val_gen):
+                batch_features: list = batch_data[:-1]
+                batch_labels: list = batch_data[-1]
 
-                y_hat = output.argmax(-1)
-                correct += torch.sum(y_hat == y_val).item()
-                loss += loss_fn(output, y_val).item()
+                output = model(*batch_features)
+                batch_metrics = model.metric(output, batch_labels)
 
-            n_samples = len(val_gen.dataset)
+                for m_name, m_value in batch_metrics.items():
+                    valid_metrics['val_' + m_name] += m_value
+                valid_metrics['val_loss'] += loss_fn(output, batch_labels).item()
 
-            model_history.append_dev_logs('val_loss', loss / n_samples)
-            model_history.append_dev_logs('val_accuracy', correct / n_samples)
-        model.train()
-
+            model_history.append_dev_logs(_normalize_metrics(valid_metrics, len(val_gen.dataset)))
         callbacks_container.on_epoch_end(epoch, model_history)
         if model_history.should_stop_training():
             break
@@ -134,23 +153,23 @@ def train(model: nn.Module,
     if batch_size < 1:
         raise RuntimeError('Each batch should have at least one sample.')
 
-    # first dimension in the amount of samples
+    # First dimension in the amount of samples
     n_samples = X.shape[0]
     val_samples = _ceil(n_samples * validation_frac)
     trn_samples = n_samples - val_samples
 
     n_batches = _ceil(trn_samples / batch_size)
 
-    # first permute before separating the validation samples
+    # First permute before separating the validation samples
     permutations = torch.randperm(n_samples)
     X = X[permutations]
     y = y[permutations]
     
-    # getting the validation samples
+    # Getting the validation samples
     X_val = X[:val_samples]
     y_val = y[:val_samples]
     
-    # the remaining are train samples
+    # The remaining are train samples
     X_trn = X[val_samples:]
     y_trn = y[val_samples:]
 
@@ -162,7 +181,7 @@ def train(model: nn.Module,
         callbacks_container.on_epoch_begin(epoch, model_history)
         epoch_loss = 0
 
-        # ensuring that the model sees samples in different order in each epoch
+        # Ensuring that the model sees samples in different order in each epoch
         permutations = torch.randperm(trn_samples)
         X_trn = X_trn[permutations]
         y_trn = y_trn[permutations]
@@ -170,39 +189,38 @@ def train(model: nn.Module,
         for batch_no in range(n_batches):
             callbacks_container.on_batch_begin(batch_no, model_history)
 
-            # fetching data
+            # Fetching data
             lower = batch_no * batch_size
             upper = min(n_samples, (batch_no + 1) * batch_size)
 
             x_in = X_trn[lower:upper]
             y_in = y_trn[lower:upper]
 
-            # stepping the model
+            # Stepping the model
             model.zero_grad()
-            class_scores = model(x_in)
+            class_scores = model(*x_in)
             loss = loss_fn(class_scores, y_in)
 
-            # updating the weights
+            # Updating the weights
             loss.backward()
             optimizer.step()
 
-            # keeping track of the model progress
+            # Keeping track of the model progress
             epoch_loss += loss.item()
-            train_accuracy = metrics.accuracy_score(class_scores.argmax(-1), y_in)
+            train_accuracy = sklearn.metrics.accuracy_score(class_scores.argmax(-1), y_in)
 
             model_history.append_trn_logs('loss', loss.item())
             model_history.append_trn_logs('accuracy', train_accuracy)
 
             callbacks_container.on_batch_end(batch_no, model_history)
 
-        # if epoch % log_every == 0:
         model.eval()
 
-        # computing loss/acc over the entire training / validation fold
+        # Computing loss/acc over the entire training / validation fold
         with torch.no_grad():
             val_logits = model(X_val)
             val_preds = val_logits.argmax(-1)
-            val_accuracy = metrics.accuracy_score(val_preds, y_val)
+            val_accuracy = sklearn.metrics.accuracy_score(val_preds, y_val)
             val_loss = loss_fn(val_logits, y_val).item()
 
         model.train()
