@@ -1,8 +1,9 @@
+from typing import Dict
+
 import numpy as np
 import torch
-from sklearn import datasets, metrics
+from sklearn import datasets
 from torch import nn, optim
-from torch.nn import functional as F
 
 from flare import trainer
 from flare.callbacks import EarlyStopping, Checkpoint
@@ -20,8 +21,9 @@ class SimpleNN(nn.Module):
 
         return logits
 
-    def loss(self, y_hat, y):
-        pass
+    def metric(self, prediction: torch.Tensor, ground: torch.Tensor) -> Dict[str, float]:
+        amount_correct = torch.sum(prediction.argmax(-1) == ground).item()
+        return {'accuracy': amount_correct}
 
 
 if __name__ == '__main__':
@@ -41,4 +43,4 @@ if __name__ == '__main__':
                          loss_fn, optimizer,
                          n_epochs=25,
                          batch_size=32,
-                         validation_frac=0.01)
+                         validation_frac=0.1)

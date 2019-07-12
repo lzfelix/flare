@@ -4,13 +4,13 @@ from collections import defaultdict
 import torch
 import numpy as np
 
-from torch.optim import Optimizer
 from torch import nn
+from torch.optim import Optimizer
 from torch.utils.data import DataLoader
-import sklearn
 
 from flare.callbacks import Callback, CallbacksContainer, ProgressBar
 from flare.history import ModelHistory
+from flare.utilities import WrapperDataset
 
 
 _ceil = lambda x: int(np.ceil(x))
@@ -124,115 +124,76 @@ def train_on_loader(model: nn.Module,
 
 
 def train(model: nn.Module,
-          X: torch.Tensor,
-          y: torch.Tensor,
+          x_trn: torch.Tensor,
+          y_trn: torch.Tensor,
           loss_fn: Any,
           optimizer: Optimizer,
           n_epochs: int,
           batch_size: int,
-          validation_frac: float,
-          log_every: int = 1,
+          batch_first: bool = True,
+          validation_frac: Optional[float] = None,
+          x_val: Optional[torch.Tensor] = None,
+          y_val: Optional[torch.Tensor] = None,
+          shuffle: bool = True,
           callbacks: Optional[List[Callback]] = None) -> ModelHistory:
     """Helper function to train the model.
 
     # Arguments
         model: The PyTorch model
-        X: Tensors representing the sample features
-        y: Tensors with categorical labels
-        n_epochs
-        batch_size
+        x_trn: Tensors representing the sample features
+        y_trn: Tensors with categorical labels
+        loss_fn:
+        optimizer:
+        n_epochs:
+        batch_size:
+        batch_first:
         validation_frac: Percentage of the samples used for validation only
             after shuffling
-        log_every: Evaluate the model and log its metrics after how many
-            epochs
-    
+        x_val:
+        y_val:
+        shuffle:
+        callbacks:
+
     # Return
         A ModelHistory object with the logs of model metrics after each epoch.
     """
 
     if batch_size < 1:
-        raise RuntimeError('Each batch should have at least one sample.')
+        raise ValueError('Each batch should have at least one sample.')
 
-    # First dimension in the amount of samples
-    n_samples = X.shape[0]
-    val_samples = _ceil(n_samples * validation_frac)
-    trn_samples = n_samples - val_samples
+    batch_index = 0 if batch_first else 1
+    if isinstance(x_trn, torch.Tensor):
+        n_samples = x_trn.size(batch_index)
+    else:
+        n_samples = x_trn[0].size(batch_index)
 
-    n_batches = _ceil(trn_samples / batch_size)
+    dataset_val = None
+    if x_val is not None or y_val is not None:
+        dataset_val = WrapperDataset(x_val, y_val)
+    else:
+        if validation_frac is not None:
+            # Need to reserve part of training data for validation
+            val_samples = _ceil(n_samples * validation_frac)
 
-    # First permute before separating the validation samples
-    permutations = torch.randperm(n_samples)
-    X = X[permutations]
-    y = y[permutations]
-    
-    # Getting the validation samples
-    X_val = X[:val_samples]
-    y_val = y[:val_samples]
-    
-    # The remaining are train samples
-    X_trn = X[val_samples:]
-    y_trn = y[val_samples:]
+            # First permute before separating the validation samples
+            permutations = torch.randperm(n_samples)
+            x_trn = x_trn[permutations]
+            y_trn = y_trn[permutations]
 
-    callbacks_container = CallbacksContainer(callbacks or [])
-    callbacks_container.append(ProgressBar(n_batches, n_epochs))
+            x_val = x_trn[:val_samples]
+            y_val = y_trn[:val_samples]
 
-    model_history = ModelHistory(model)
-    for epoch in range(1, n_epochs + 1):
-        callbacks_container.on_epoch_begin(epoch, model_history)
-        epoch_loss = 0
+            x_trn = x_trn[val_samples:]
+            y_trn = y_trn[val_samples:]
 
-        # Ensuring that the model sees samples in different order in each epoch
-        permutations = torch.randperm(trn_samples)
-        X_trn = X_trn[permutations]
-        y_trn = y_trn[permutations]
+            dataset_val = WrapperDataset(x_val, y_val)
 
-        for batch_no in range(n_batches):
-            callbacks_container.on_batch_begin(batch_no, model_history)
+    dataset_trn = WrapperDataset(x_trn, y_trn)
+    loader_trn = DataLoader(dataset_trn, batch_size, shuffle)
 
-            # Fetching data
-            lower = batch_no * batch_size
-            upper = min(n_samples, (batch_no + 1) * batch_size)
+    if dataset_val:
+        loader_dev = DataLoader(dataset_val, batch_size, shuffle)
+    else:
+        loader_dev = None
 
-            x_in = X_trn[lower:upper]
-            y_in = y_trn[lower:upper]
-
-            # Stepping the model
-            model.zero_grad()
-            class_scores = model(*x_in)
-            loss = loss_fn(class_scores, y_in)
-
-            # Updating the weights
-            loss.backward()
-            optimizer.step()
-
-            # Keeping track of the model progress
-            epoch_loss += loss.item()
-            train_accuracy = sklearn.metrics.accuracy_score(class_scores.argmax(-1), y_in)
-
-            model_history.append_trn_logs('loss', loss.item())
-            model_history.append_trn_logs('accuracy', train_accuracy)
-
-            callbacks_container.on_batch_end(batch_no, model_history)
-
-        model.eval()
-
-        # Computing loss/acc over the entire training / validation fold
-        with torch.no_grad():
-            val_logits = model(X_val)
-            val_preds = val_logits.argmax(-1)
-            val_accuracy = sklearn.metrics.accuracy_score(val_preds, y_val)
-            val_loss = loss_fn(val_logits, y_val).item()
-
-        model.train()
-
-        model_history.append_dev_logs('val_loss', val_loss)
-        model_history.append_dev_logs('val_accuracy', val_accuracy)
-
-        callbacks_container.on_epoch_end(epoch, model_history)
-        if model_history.should_stop_training():
-            break
-
-    model_history.close(n_epochs)
-    callbacks_container.on_train_end()
-
-    return model_history
+    return train_on_loader(model, loader_trn, loader_dev, loss_fn, optimizer, n_epochs, batch_first, callbacks)
