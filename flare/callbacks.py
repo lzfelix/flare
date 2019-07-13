@@ -1,9 +1,10 @@
 import logging
-from typing import List, Dict, Any, Optional
+from typing import List, Dict
 
 import tqdm
 import torch
 import numpy as np
+import tensorboardX
 
 from flare.history import ModelHistory
 from requests_futures.sessions import FuturesSession
@@ -72,7 +73,7 @@ class ProgressBar(Callback):
         super().__init__()
 
     @staticmethod
-    def _get_latest_metrics(logs: Dict[str, List[float]]) -> float:
+    def _get_latest_metrics(logs: Dict[str, List[float]]) -> Dict[str, float]:
         return {key: value[-1] for key, value in logs.items()}
 
     def on_epoch_begin(self, epoch: int, logs: ModelHistory) -> None:
@@ -139,7 +140,6 @@ class EarlyStopping(MetricMonitorCallback):
 
 
 class Checkpoint(MetricMonitorCallback):
-
     def __init__(self,
                  metric_name: str,
                  min_delta: float,
@@ -180,7 +180,6 @@ class Checkpoint(MetricMonitorCallback):
 
 
 class TelegramNotifier(MetricMonitorCallback):
-
     def __init__(self, bot_id: str, chat_id: str, metric_name: str, delta, max_workers: int = 1):
         self.bot_id = bot_id
         self.chat_id = chat_id
@@ -216,3 +215,25 @@ class TelegramNotifier(MetricMonitorCallback):
 
     def on_train_end(self) -> None:
         self.session.close()
+
+
+class Tensorboard(Callback):
+    """Stores model metrics at the end of each epoch."""
+
+    def __init__(self, model_name):
+        self.writer = tensorboardX.SummaryWriter(model_name)
+        self.epoch_counter = 0
+
+    @staticmethod
+    def _get_latest_metrics(logs: Dict[str, List[float]]) -> Dict[str, float]:
+        return {key: value[-1] for key, value in logs.items()}
+
+    def on_epoch_end(self, epoch: int, logs: ModelHistory):
+        self.epoch_counter += 1
+
+        val_metrics = self._get_latest_metrics(logs.val_logs)
+        display_metrics = self._get_latest_metrics(logs.trn_logs)
+        display_metrics.update(val_metrics)
+
+        for m_name, m_value in display_metrics.items():
+            self.writer.add_scalar(m_name, m_value, global_step=self.epoch_counter)
