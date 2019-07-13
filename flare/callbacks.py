@@ -1,5 +1,5 @@
 import logging
-from typing import List, Dict
+from typing import List, Dict, Tuple, Any, Optional
 
 import tqdm
 import torch
@@ -220,13 +220,26 @@ class TelegramNotifier(MetricMonitorCallback):
 class Tensorboard(Callback):
     """Stores model metrics at the end of each epoch."""
 
-    def __init__(self, model_name):
+    def __init__(self, model_name, write_graph: Optional[Tuple[torch.nn.Module, Any]] = None):
+        """
+        # Arguments
+            model_name: Name of the destination folder to store the models.
+            write_graph: If this argument is passed, the model graph is logged in tensorboard at the end of the
+                first epoch. This parameter is a tuple containing the model to be logged and a valid batch of data
+                to be passed through the model.
+        """
         self.writer = tensorboardX.SummaryWriter(model_name)
         self.epoch_counter = 0
+        self.write_graph = write_graph
 
     @staticmethod
     def _get_latest_metrics(logs: Dict[str, List[float]]) -> Dict[str, float]:
         return {key: value[-1] for key, value in logs.items()}
+
+    def on_epoch_begin(self, epoch: int, logs: ModelHistory):
+        if self.epoch_counter == 0:
+            self.writer.add_graph(self.write_graph[0], self.write_graph[1])
+            del self.write_graph
 
     def on_epoch_end(self, epoch: int, logs: ModelHistory):
         self.epoch_counter += 1
