@@ -1,4 +1,4 @@
-from typing import List, Optional, Any
+from typing import List, Dict, Optional, Any
 from collections import defaultdict
 
 import torch
@@ -16,8 +16,18 @@ from flare.utilities import WrapperDataset
 _ceil = lambda x: int(np.ceil(x))
 
 
-def _normalize_metrics(metrics: dict, seen_samples: int):
-    return {m_name: m_value / seen_samples for m_name, m_value in metrics.items()}
+def _normalize_metrics(metrics: dict, seen_samples: int, normalize_loss: bool = True) -> Dict[str, float]:
+    normalized = dict()
+    # TODO: Make this process cleaner
+    for m_name, m_value in metrics.items():
+        # Losses are normalized by default in their internal computation, but for model
+        # evaluation, we want the average over the entire input samples
+        if 'loss' in m_name and normalize_loss:
+            value = m_value
+        else:
+            value = m_value / seen_samples
+        normalized[m_name] = value
+    return normalized
 
 
 def train_on_loader(model: nn.Module,
@@ -77,19 +87,15 @@ def train_on_loader(model: nn.Module,
             seen_samples += n_samples
             epoch_loss += loss.item()
 
-            # Metrics accumulator
+            # Accumulating metrics and losses for the current epoch
             batch_metrics = model.metric(output, batch_labels)
             for m_name, m_value in batch_metrics.items():
                 training_metrics[m_name] += m_value
+            training_metrics['loss'] = loss.item()
 
-            # Need to take care of the model loss separately
-            training_metrics['loss'] = epoch_loss
-
-            # model_history.append_batch_data(training_metrics)
+            # Normalizing metrics up to the current batch to display in the progress bar
             model_history.append_batch_data(_normalize_metrics(training_metrics, seen_samples))
 
-            # print(metrics)
-            # metrics = {name: value / seen_samples for name, value in metrics.items()}
             callbacks_container.on_batch_end(batch_id, model_history)
 
         model_history.append_trn_logs(_normalize_metrics(training_metrics, seen_samples))
@@ -112,13 +118,19 @@ def train_on_loader(model: nn.Module,
 
                 for m_name, m_value in batch_metrics.items():
                     valid_metrics['val_' + m_name] += m_value
-                valid_metrics['val_loss'] += loss_fn(output, batch_labels).item()
+
+                # Taking the unnormalized loss because we want to consider the loss over the entire val split
+                n_samples = batch_features[0].size(batch_index)
+
+                # TODO: are all losses divided by the amount of samples?
+                unnormalized_val_loss = loss_fn(output, batch_labels).item() * n_samples
+                valid_metrics['val_loss'] += unnormalized_val_loss
 
                 # All feature matrices should have the same amount of sample entries,
                 # hence we can take any of them to figure out the batch size
-                seen_samples += batch_features[0].size(batch_index)
+                seen_samples += n_samples
 
-            model_history.append_dev_logs(_normalize_metrics(valid_metrics, seen_samples))
+            model_history.append_dev_logs(_normalize_metrics(valid_metrics, seen_samples, normalize_loss=False))
         callbacks_container.on_epoch_end(epoch, model_history)
         if model_history.should_stop_training():
             break
