@@ -64,15 +64,15 @@ def train_on_loader(model: nn.Module,
             batch_features: list = batch_data[:-1]
             batch_labels: list = batch_data[-1]
 
-            # All feature matrices should have the same amount of sample entries,
-            # hence we can take any of them to figure out the batch size
-            n_samples = batch_features[0].size(batch_index)
-
             optimizer.zero_grad()
             output = model(*batch_features)
             loss = loss_fn(output, batch_labels)
             loss.backward()
             optimizer.step()
+
+            # All feature matrices should have the same amount of sample entries,
+            # hence we can take any of them to figure out the batch size
+            n_samples = batch_features[0].size(batch_index)
 
             seen_samples += n_samples
             epoch_loss += loss.item()
@@ -100,7 +100,9 @@ def train_on_loader(model: nn.Module,
 
         model.eval()
         with torch.no_grad():
+
             valid_metrics = defaultdict(int)
+            seen_samples = 0
             for batch_id, batch_data in enumerate(val_gen):
                 batch_features: list = batch_data[:-1]
                 batch_labels: list = batch_data[-1]
@@ -112,7 +114,11 @@ def train_on_loader(model: nn.Module,
                     valid_metrics['val_' + m_name] += m_value
                 valid_metrics['val_loss'] += loss_fn(output, batch_labels).item()
 
-            model_history.append_dev_logs(_normalize_metrics(valid_metrics, len(val_gen.dataset)))
+                # All feature matrices should have the same amount of sample entries,
+                # hence we can take any of them to figure out the batch size
+                seen_samples += batch_features[0].size(batch_index)
+
+            model_history.append_dev_logs(_normalize_metrics(valid_metrics, seen_samples))
         callbacks_container.on_epoch_end(epoch, model_history)
         if model_history.should_stop_training():
             break

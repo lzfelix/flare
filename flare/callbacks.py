@@ -237,7 +237,7 @@ class Tensorboard(Callback):
         return {key: value[-1] for key, value in logs.items()}
 
     def on_epoch_begin(self, epoch: int, logs: ModelHistory):
-        if self.epoch_counter == 0:
+        if self.epoch_counter == 0 and self.write_graph:
             self.writer.add_graph(self.write_graph[0], self.write_graph[1])
             del self.write_graph
 
