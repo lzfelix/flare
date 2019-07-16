@@ -1,4 +1,4 @@
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Tuple, Optional, Any
 from collections import defaultdict
 
 import torch
@@ -16,18 +16,47 @@ from flare.utilities import WrapperDataset
 _ceil = lambda x: int(np.ceil(x))
 
 
-def _normalize_metrics(metrics: dict, seen_samples: int, normalize_loss: bool = True) -> Dict[str, float]:
+def _normalize_metrics(metrics: dict, seen_samples: int, normalize_loss: bool = False) -> Dict[str, float]:
     normalized = dict()
     # TODO: Make this process cleaner
     for m_name, m_value in metrics.items():
         # Losses are normalized by default in their internal computation, but for model
         # evaluation, we want the average over the entire input samples
-        if 'loss' in m_name and normalize_loss:
+        if 'loss' in m_name and not normalize_loss:
             value = m_value
         else:
             value = m_value / seen_samples
         normalized[m_name] = value
     return normalized
+
+
+def evaluate_on_loader(model, eval_gen, loss_fn, batch_first=True) -> Dict[str, float]:
+    batch_index = 0 if batch_first else 1
+
+    model.eval()
+    with torch.no_grad():
+        seen_samples = 0
+        eval_metrics = defaultdict(int)
+        for batch_id, batch_data in enumerate(eval_gen):
+            batch_features: list = batch_data[:-1]
+            batch_labels: list = batch_data[-1]
+            n_samples: int = batch_features[0].size(batch_index)
+
+            output = model(*batch_features)
+            batch_metrics = model.metric(output, batch_labels)
+
+            for m_name, m_value in batch_metrics.items():
+                eval_metrics[m_name] += m_value
+
+            # Taking the unnormalized loss because we want to consider the loss over the entire val split
+            # TODO: are all losses divided by the amount of samples?
+            unnormalized_val_loss = loss_fn(output, batch_labels).item() * n_samples
+            eval_metrics['loss'] += unnormalized_val_loss
+
+            # All feature matrices should have the same amount of sample entries,
+            # hence we can take any of them to figure out the batch size
+            seen_samples += n_samples
+    return _normalize_metrics(eval_metrics, seen_samples, normalize_loss=True)
 
 
 def train_on_loader(model: nn.Module,
@@ -100,37 +129,13 @@ def train_on_loader(model: nn.Module,
 
         model_history.append_trn_logs(_normalize_metrics(training_metrics, seen_samples))
 
-        # Just ignore the rest if there's no validation data
-        if not val_gen:
-            continue
+        if val_gen:
+            val_logs = evaluate_on_loader(model, val_gen, loss_fn, batch_first)
 
-        model.eval()
-        with torch.no_grad():
+            # Adding the val_ prefix and storing metrics over the entire validation data
+            val_logs = {'val_' + m_name: m_value for m_name, m_value in val_logs.items()}
+            model_history.append_dev_logs(val_logs)
 
-            valid_metrics = defaultdict(int)
-            seen_samples = 0
-            for batch_id, batch_data in enumerate(val_gen):
-                batch_features: list = batch_data[:-1]
-                batch_labels: list = batch_data[-1]
-
-                output = model(*batch_features)
-                batch_metrics = model.metric(output, batch_labels)
-
-                for m_name, m_value in batch_metrics.items():
-                    valid_metrics['val_' + m_name] += m_value
-
-                # Taking the unnormalized loss because we want to consider the loss over the entire val split
-                n_samples = batch_features[0].size(batch_index)
-
-                # TODO: are all losses divided by the amount of samples?
-                unnormalized_val_loss = loss_fn(output, batch_labels).item() * n_samples
-                valid_metrics['val_loss'] += unnormalized_val_loss
-
-                # All feature matrices should have the same amount of sample entries,
-                # hence we can take any of them to figure out the batch size
-                seen_samples += n_samples
-
-            model_history.append_dev_logs(_normalize_metrics(valid_metrics, seen_samples, normalize_loss=False))
         callbacks_container.on_epoch_end(epoch, model_history)
         if model_history.should_stop_training():
             break
@@ -215,3 +220,13 @@ def train(model: nn.Module,
         loader_dev = None
 
     return train_on_loader(model, loader_trn, loader_dev, loss_fn, optimizer, n_epochs, batch_first, callbacks)
+
+
+def evaluate(model: nn.Module,
+             x_eval: torch.Tensor,
+             y_eval: torch.Tensor,
+             loss_fn,
+             batch_size: int,
+             batch_first: bool = True) -> Dict[str, float]:
+    eval_gen = DataLoader(WrapperDataset(x_eval, y_eval), batch_size)
+    return evaluate_on_loader(model, eval_gen, loss_fn, batch_first)
