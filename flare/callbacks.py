@@ -1,10 +1,10 @@
 import logging
 from typing import List, Dict, Tuple, Any, Optional
 
-import tqdm
 import torch
 import numpy as np
 import tensorboardX
+from tqdm import auto as tqdm
 
 from flare.history import ModelHistory
 from requests_futures.sessions import FuturesSession
