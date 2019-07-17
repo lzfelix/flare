@@ -1,5 +1,5 @@
 # Flare
-_:fire: Flare - Making PyTorch broader_
+_:fire: Flare - Going faster with pyTorch_
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-brightgreen.svg)](https://github.com/lzfelix/flare/blob/master/LICENSE)
 
@@ -65,6 +65,7 @@ just want to help with the model training part. Below is a list with some Keras-
 
 * Training loop for `DataLoader`
 * Training loop for data in tensors
+* Some initialization functions
 * Callbacks: ProgressBar, Early Stopping, Checkpoint, TelegramNotifyer, Custom
 
 ## How to install
@@ -74,3 +75,8 @@ Currently, Flare can only be installed from GitHub, i.e.:
 ```bash
 pip install git+https://github.com/lzfelix/flare
 ```
+
+## How metrics are computed
+
+* Accuracy is computed over the entire training/evaluation dataset;
+* Other metrics are displayed as the average obtained in each batch (including during eval mode).
