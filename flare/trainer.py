@@ -18,10 +18,9 @@ _ceil = lambda x: int(np.ceil(x))
 
 def _normalize_metrics(metrics: dict, seen_samples: int, normalize_loss: bool = False) -> Dict[str, float]:
     normalized = dict()
-    # TODO: Make this process cleaner
     for m_name, m_value in metrics.items():
         # Losses are normalized by default in their internal computation, but for model
-        # evaluation, we want the average over the entire input samples
+        # evaluation, we want the average over bathces
         if 'loss' in m_name and not normalize_loss:
             value = m_value
         else:
@@ -36,6 +35,7 @@ def evaluate_on_loader(model, eval_gen, loss_fn, batch_first=True) -> Dict[str, 
     model.eval()
     with torch.no_grad():
         seen_samples = 0
+        eval_loss = 0
         eval_metrics = defaultdict(int)
         for batch_id, batch_data in enumerate(eval_gen):
             batch_features: list = batch_data[:-1]
@@ -48,15 +48,13 @@ def evaluate_on_loader(model, eval_gen, loss_fn, batch_first=True) -> Dict[str, 
             for m_name, m_value in batch_metrics.items():
                 eval_metrics[m_name] += m_value
 
-            # Taking the unnormalized loss because we want to consider the loss over the entire val split
-            # TODO: are all losses divided by the amount of samples?
-            unnormalized_val_loss = loss_fn(output, batch_labels).item() * n_samples
-            eval_metrics['loss'] += unnormalized_val_loss
+            eval_loss += loss_fn(output, batch_labels).item()
+            eval_metrics['loss'] = eval_loss / (batch_id + 1)
 
             # All feature matrices should have the same amount of sample entries,
             # hence we can take any of them to figure out the batch size
             seen_samples += n_samples
-    return _normalize_metrics(eval_metrics, seen_samples, normalize_loss=True)
+    return _normalize_metrics(eval_metrics, seen_samples)
 
 
 def train_on_loader(model: nn.Module,
@@ -120,7 +118,7 @@ def train_on_loader(model: nn.Module,
             batch_metrics = model.metric(output, batch_labels)
             for m_name, m_value in batch_metrics.items():
                 training_metrics[m_name] += m_value
-            training_metrics['loss'] = loss.item()
+            training_metrics['loss'] = epoch_loss / (batch_id + 1)
 
             # Normalizing metrics up to the current batch to display in the progress bar
             model_history.append_batch_data(_normalize_metrics(training_metrics, seen_samples))
@@ -230,3 +228,4 @@ def evaluate(model: nn.Module,
              batch_first: bool = True) -> Dict[str, float]:
     eval_gen = DataLoader(WrapperDataset(x_eval, y_eval), batch_size)
     return evaluate_on_loader(model, eval_gen, loss_fn, batch_first)
+
