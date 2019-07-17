@@ -86,7 +86,6 @@ class ProgressBar(Callback):
         display_metrics.update(val_metrics)
 
         self.progbar.set_postfix(display_metrics)
-        self.progbar.update()
         self.progbar.close()
 
     def on_batch_begin(self, batch: int, logs: ModelHistory) -> None:
