@@ -1,5 +1,5 @@
 from collections import OrderedDict
-from typing import Union, List, Tuple, Optional
+from typing import Union, List
 import inspect
 
 import torch
@@ -7,27 +7,53 @@ from torch import nn
 from torch.nn.utils import rnn as rnn_utils
 
 
-def summarize(model: nn.Module,
-              in_tensor: Union[List[torch.Tensor], torch.Tensor],
-              inspect_custom: bool = False) -> None:
-    module_stack = OrderedDict()
-    all_hook_handles = list()
+def _compute_shape(tensor, batch_first: bool) -> List[str]:
 
-    _filter_modules = lambda pair: pair[0][:2] != '__' and str(pair[1])[:6] == '<class'
-    default_modules = set(map(
-            lambda x: x[1],  # get just the module class, not its name
-            filter(_filter_modules, inspect.getmembers(nn.modules))
-        ))
-
-    def get_shape(output: Union[torch.Tensor, rnn_utils.PackedSequence]):
-        if isinstance(output, rnn_utils.PackedSequence):
-            shape = 'PackedSequence'
-        elif isinstance(output, torch.Tensor):
-            # Casting torch.Shape to tuple
-            shape = tuple(output.shape)
+    def get_shape(tensor: Union[torch.Tensor, rnn_utils.PackedSequence]):
+        if isinstance(tensor, rnn_utils.PackedSequence):
+            t, _ = rnn_utils.pad_packed_sequence(tensor, batch_first=batch_first)
+            shape = str(tuple(t.shape)) + '*'
+        elif isinstance(tensor, torch.Tensor):
+            shape = str(tuple(tensor.shape))
         else:
             raise RuntimeError('Unexpected module input/output type')
         return shape
+
+    if isinstance(tensor, (tuple, list)):
+        tensor_shapes = list(map(get_shape, tensor))
+    else:
+        tensor_shapes = [get_shape(tensor)]
+
+    return tensor_shapes
+
+
+def summarize(model: nn.Module,
+              in_tensor: Union[List[torch.Tensor], torch.Tensor],
+              batch_first: bool = True,
+              inspect_custom: bool = False) -> None:
+    """Prints the model layout.
+
+    # Arguments
+        model: The model to be summarized.
+        in_tensor: The input expected by the model. This function will
+            perform a single forward pass in the model without storing
+            the gradients
+        batch_first: Used to devise PackedSequence shapes in RNN-based
+            models.
+        inspect_custom: If set to True this function will list all the
+            internal modules of non-standard PyTorch modules. By default
+            only the custom module name is listed, along with all of its
+            trainable/frozen parameters.
+    """
+    module_stack = OrderedDict()
+    all_hook_handles = list()
+
+    # Figures out all pyTorch default Modules, which are nn subpackages
+    filter_modules = lambda pair: pair[0][:2] != '__' and str(pair[1])[:6] == '<class'
+    default_modules = set(map(
+            lambda x: x[1],  # get just the module class, not its name
+            filter(filter_modules, inspect.getmembers(nn.modules))
+        ))
 
     def register_hook(module):
         def hook(module: nn.Module, in_: tuple, out_: tuple):
@@ -36,15 +62,8 @@ def summarize(model: nn.Module,
             layer_name = str(module.__class__).split('.')[-1].split("'")[0]
             layer_name = f'{layer_idx}_{layer_name}'
 
-            if isinstance(in_, (tuple, list)):
-                in_shape = list(map(get_shape, in_))
-            else:
-                in_shape = get_shape(in_)
-
-            if isinstance(out_, (tuple, list)):
-                out_shape = list(map(get_shape, out_))
-            else:
-                out_shape = [get_shape(out_)]
+            in_shape = _compute_shape(in_, batch_first)
+            out_shape = _compute_shape(out_, batch_first)
 
             trainable_params = sum(p.numel() for p in module.parameters() if p.requires_grad)
             non_trainable = sum(p.numel() for p in module.parameters() if not p.requires_grad)
@@ -58,7 +77,6 @@ def summarize(model: nn.Module,
         hook_handle = module.register_forward_hook(hook)
         all_hook_handles.append(hook_handle)
 
-    # model.apply(register_hook)
     for child_module in model.children():
         if child_module == model:
             continue
@@ -89,21 +107,21 @@ def summarize(model: nn.Module,
             name,
             str(specs['trainable']),
             str(specs['non_trainable']),
-            str(in_shapes[0]),
-            str(out_shapes[0])
+            in_shapes[0],
+            out_shapes[0]
         ))
 
         longest_seq = max(len(in_shapes), len(out_shapes))
         for seq_idx in range(1, longest_seq):
             left_padding = [' ' * 45]
             if seq_idx < len(in_shapes):
-                fmt_in = f'{str(in_shapes[seq_idx]):25} '
+                fmt_in = f'{in_shapes[seq_idx]:25} '
             else:
                 fmt_in = ' ' * 26
             left_padding.append(fmt_in)
 
             if seq_idx < len(out_shapes):
-                left_padding.append(f'{str(out_shapes[seq_idx]):25}')
+                left_padding.append(f'{out_shapes[seq_idx]:25}')
 
             print(''.join(left_padding))
     print('=' * 90)
@@ -113,4 +131,5 @@ def summarize(model: nn.Module,
     print(f'Total params: {total_train + total_nontrain:,}')
     print(f'Trainable params: {total_train:,}')
     print(f'Frozen params: {total_nontrain:,}')
+    print('\n(?, ?, ?)* = Unpacked sequence shape')
     print('_' * 90)
