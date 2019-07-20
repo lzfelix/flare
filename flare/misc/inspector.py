@@ -3,11 +3,22 @@ from typing import Union, List
 
 import torch
 from torch import nn
+from torch.nn.utils import rnn as rnn_utils
 
 
 def summarize(model: nn.Module, in_tensor: Union[List[torch.Tensor], torch.Tensor]) -> None:
     module_stack = OrderedDict()
     all_hook_handles = list()
+
+    def get_shape(output: Union[torch.Tensor, rnn_utils.PackedSequence]):
+        if isinstance(output, rnn_utils.PackedSequence):
+            shape = 'PackedSequence'
+        elif isinstance(output, torch.Tensor):
+            # Casting torch.Shape to tuple
+            shape = tuple(output.shape)
+        else:
+            raise RuntimeError('Unexpected module input/output type')
+        return shape
 
     def register_hook(module):
         def hook(module: nn.Module, in_: tuple, out_: tuple):
@@ -16,17 +27,18 @@ def summarize(model: nn.Module, in_tensor: Union[List[torch.Tensor], torch.Tenso
             layer_name = str(module.__class__).split('.')[-1].split("'")[0]
             layer_name = f'{layer_idx}_{layer_name}'
 
-            # modules usually have 1 input and 1 or more outputs
-            in_shape = in_[0].shape
+            # Modules usually have 1 input and 1 or more outputs
+            in_shape = get_shape(in_[0])
+
             if isinstance(out_, (tuple, list)):
-                out_shape = [output_tensor.shape for output_tensor in out_]
+                out_shape = list(map(get_shape, out_))
             else:
-                out_shape = out_.shape
+                out_shape = get_shape(out_)
 
             trainable_params = sum(p.numel() for p in module.parameters() if p.requires_grad)
             non_trainable = sum(p.numel() for p in module.parameters() if not p.requires_grad)
             module_stack[layer_name] = {
-                'in_shape': list(in_shape),
+                'in_shape': in_shape,
                 'out_shape': out_shape,
                 'trainable': trainable_params,
                 'non_trainable': non_trainable
@@ -39,11 +51,11 @@ def summarize(model: nn.Module, in_tensor: Union[List[torch.Tensor], torch.Tenso
     def format_out_shape(plist):
         prefix = '\n' + ' ' * 71
         if isinstance(plist, list):
-            return prefix.join([str(list(x)) for x in plist])
+            return prefix.join([str(x) for x in plist])
         else:
-            return str(list(plist))
+            return str(plist)
 
-    model.apply(register_hook);
+    model.apply(register_hook)
     with torch.no_grad():
         model(*in_tensor)
 
@@ -59,8 +71,6 @@ def summarize(model: nn.Module, in_tensor: Union[List[torch.Tensor], torch.Tenso
                                             'Output shape'))
     print('-' * 90)
     for name, specs in module_stack.items():
-        buffer = ''
-
         line_new = "{:20}  {:10} {:10}  {:25} {:15}".format(
             name,
             str(specs['trainable']),
