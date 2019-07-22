@@ -36,7 +36,7 @@ if __name__ == '__main__':
     optimizer = optim.SGD(model.parameters(), lr=1e-1)
     loss_fn = nn.CrossEntropyLoss()
 
-    patience = EarlyStopping(3, 0.001, 'val_loss', verbosity=1)
+    patience = EarlyStopping('val_loss', 3, 0.001, verbosity=1)
     checkpoint = Checkpoint('val_loss', 0.001, './model', verbosity=1)
 
     logs = trainer.train(model, X, y,

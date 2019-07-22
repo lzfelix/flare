@@ -1,4 +1,4 @@
-from typing import List, Dict, Tuple, Optional, Any
+from typing import List, Dict, Optional, Any
 from collections import defaultdict
 
 import torch
@@ -16,12 +16,11 @@ from flare.utilities import WrapperDataset
 _ceil = lambda x: int(np.ceil(x))
 
 
-def _normalize_metrics(metrics: dict, seen_samples: int, normalize_loss: bool = False) -> Dict[str, float]:
+def _normalize_metrics(metrics: dict, seen_samples: int) -> Dict[str, float]:
     normalized = dict()
     for m_name, m_value in metrics.items():
-        # Losses are normalized by default in their internal computation, but for model
-        # evaluation, we want the average over bathces
-        if 'loss' in m_name and not normalize_loss:
+        # Losses are normalized by default in their internal computation
+        if 'loss' in m_name:
             value = m_value
         else:
             value = m_value / seen_samples
@@ -29,7 +28,23 @@ def _normalize_metrics(metrics: dict, seen_samples: int, normalize_loss: bool = 
     return normalized
 
 
-def evaluate_on_loader(model, eval_gen, loss_fn, batch_first=True) -> Dict[str, float]:
+def evaluate_on_loader(model: nn.Module,
+                       eval_gen: DataLoader,
+                       loss_fn: Any,
+                       batch_first: bool = True) -> Dict[str, float]:
+    """Computes the model metrics on some evaluation data.
+
+    # Arguments
+        model: The PyTorch model to be evaluated.
+        eval_gen: A DataLoader with samples to be used for evaluation
+        loss_fn: The loss function from which gradients are computed.
+            Its expected signature is `loss_fn(model_output, y_true)`.
+        batch_first: For sequential data, if True data is expected to have the layout
+             `[seq_len, batch_size, *]`, otherwise `[batch_size, seq_len, *]`.
+
+    # Returns
+        The result of the model `metric()` method.
+    """
     batch_index = 0 if batch_first else 1
 
     model.eval()
@@ -63,18 +78,20 @@ def train_on_loader(model: nn.Module,
                     loss_fn: Any,
                     optimizer: Optimizer,
                     n_epochs: int,
-                    batch_first: bool = True,
+                    batch_first: bool = False,
                     callbacks: Optional[List[Callback]] = None) -> ModelHistory:
-    """
-    Helper function to train a model using torch DataLoader.
+    """Trains a model using data from a DataLoader.
 
     # Arguments
         model: The PyTorch model.
         train_gen: A DataLoader containing the training data.
         val_gen: A DataLoader containing the validation data.
         loss_fn: The loss function from which gradients are computed.
+            Its expected signature is `loss_fn(model_output, y_true)`.
         optimizer: The optimizer used in the backpropagation step.
         n_epochs: How many passes should be performed over the train_gen.
+        batch_first: For sequential data, if True data is expected to have the layout
+             `[seq_len, batch_size, *]`, otherwise `[batch_size, seq_len, *]`.
         callbacks: List of utility callbacks to help training the model.
 
     # Return
@@ -157,23 +174,36 @@ def train(model: nn.Module,
           y_val: Optional[torch.Tensor] = None,
           shuffle: bool = True,
           callbacks: Optional[List[Callback]] = None) -> ModelHistory:
-    """Helper function to train the model.
+    """Trains a model using data in PyTorch tensors.
+
+    This function expects the model to implement a `metric()` with the following
+    signature:
+
+    ```python
+        def metric(self, prediction: torch.Tensor, y_true: torch.Tensor) -> dict:
+            pass.
+    ```
+
+    See `examples/` for details.
 
     # Arguments
-        model: The PyTorch model
-        x_trn: Tensors representing the sample features
-        y_trn: Tensors with categorical labels
-        loss_fn:
-        optimizer:
-        n_epochs:
-        batch_size:
-        batch_first:
-        validation_frac: Percentage of the samples used for validation only
-            after shuffling
-        x_val:
-        y_val:
-        shuffle:
-        callbacks:
+        model: The PyTorch model.
+        x_trn: Tensors representing the sample features.
+        y_trn: Tensors sample labels.
+        loss_fn: The loss function from which gradients are computed.
+            Its expected signature is `loss_fn(model_output, y_true)`.
+        optimizer: The optimizer used in the backpropagation step.
+        n_epochs: How many passes should be performed over the train_gen.
+        batch_size: How many samples there are in a batch. The last batch may be smaller.
+        batch_first: For sequential data, if True data is expected to have the layout
+             `[seq_len, batch_size, *]`, otherwise `[batch_size, seq_len, *]`.
+        validation_frac: Percentage of the samples from X to be reserved for validation
+            after the data is shuffled. This shuffling happens regardless the value of
+            the `shuffle` parameter.
+        x_val: Optional tensor representing the validation data features.
+        x_val: Optional tensor representing the validation data labels.
+        shuffle: Should the samples be shuffled before training?
+        callbacks: List of utility callbacks to help training the model.
 
     # Return
         A ModelHistory object with the logs of model metrics after each epoch.
@@ -189,7 +219,7 @@ def train(model: nn.Module,
         n_samples = x_trn[0].size(batch_index)
 
     dataset_val = None
-    if x_val is not None or y_val is not None:
+    if x_val is not None and y_val is not None:
         dataset_val = WrapperDataset(x_val, y_val)
     else:
         if validation_frac is not None:
@@ -226,6 +256,20 @@ def evaluate(model: nn.Module,
              loss_fn,
              batch_size: int,
              batch_first: bool = True) -> Dict[str, float]:
+    """Computes the model metrics on some evaluation data.
+
+    # Arguments
+        model: The PyTorch model to be evaluated.
+        x_eval: Validation samples features.
+        y_eval: Validation samples labels.
+        loss_fn: The loss function from which gradients are computed.
+            Its expected signature is `loss_fn(model_output, y_true)`.
+        batch_size: How many samples there are in a batch. The last batch may be smaller.
+        batch_first: For sequential data, if True data is expected to have the layout
+             `[seq_len, batch_size, *]`, otherwise `[batch_size, seq_len, *]`.
+
+    # Returns
+        The result of the model `metric()` method.
+    """
     eval_gen = DataLoader(WrapperDataset(x_eval, y_eval), batch_size)
     return evaluate_on_loader(model, eval_gen, loss_fn, batch_first)
-

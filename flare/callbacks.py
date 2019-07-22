@@ -11,6 +11,7 @@ from requests_futures.sessions import FuturesSession
 
 
 class Callback:
+    """A basic callback prototype from which all callbacks should inherit."""
     def on_epoch_begin(self, epoch: int, logs: ModelHistory) -> None:
         pass
 
@@ -34,6 +35,8 @@ class Callback:
 
 
 class CallbacksContainer:
+    """Class that coordinates how and when all callbacks are fired during model training."""
+
     def __init__(self, callbacks: List[Callback]):
         self.callbacks = callbacks or list()
 
@@ -96,7 +99,7 @@ class ProgressBar(Callback):
         self.progbar.set_postfix(logs.batch_data, refresh=False)
 
 
-class MetricMonitorCallback(Callback):
+class _MetricMonitorCallback(Callback):
     def get_metric(self, utility: str, metric: str, logs: ModelHistory) -> float:
         if metric not in logs.val_logs and metric not in logs.trn_logs:
             raise RuntimeError(f'Metric for {utility} ({metric}) not in the ' +
@@ -106,11 +109,21 @@ class MetricMonitorCallback(Callback):
         return current_metric[-1]
 
 
-class EarlyStopping(MetricMonitorCallback):
+class EarlyStopping(_MetricMonitorCallback):
+    """If the selected metric does not improve by delta after a given amount of epochs, stops the training.
+
+    # Arguments
+        metric_name: The name of the metric to be watched.
+        patience: For how many epochs to wait before stopping the training.
+        delta: The smallest variation required to reset the patience counter.
+        verbosity: `0`: silent, `1`: notifies whether the metric has improved or not.
+    """
+
+    # TODO: currently this only supports decreasing metrics (ie. loss)
     def __init__(self,
+                 metric_name: str,
                  patience: int,
                  delta: float,
-                 metric_name: str,
                  verbosity: int = 0):
         self.metric_name = metric_name
         self.patience = patience
@@ -139,7 +152,7 @@ class EarlyStopping(MetricMonitorCallback):
             self.ticks = 0
 
 
-class Checkpoint(MetricMonitorCallback):
+class Checkpoint(_MetricMonitorCallback):
     """Persits a model whenever `metric[t-1] - metric[t] < delta`
 
     # Arguments
@@ -196,7 +209,7 @@ class Checkpoint(MetricMonitorCallback):
                 torch.save(logs.model, destination_filename)
 
 
-class TelegramNotifier(MetricMonitorCallback):
+class TelegramNotifier(_MetricMonitorCallback):
     def __init__(self, bot_id: str, chat_id: str, metric_name: str, delta, max_workers: int = 1):
         self.bot_id = bot_id
         self.chat_id = chat_id
