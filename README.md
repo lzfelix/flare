@@ -67,6 +67,7 @@ just want to help with the model training part. Below is a list with some Keras-
 * Training loop for data in tensors
 * Some initialization functions
 * Callbacks: ProgressBar, Early Stopping, Checkpoint, TelegramNotifyer, Custom
+* A model summary similar to Keras that works with sequential and convolutional models
 
 ## How to install
 
