@@ -8,7 +8,7 @@ def init_gru_(gru_module: nn.GRU) -> nn.GRU:
     xavier_normal (glorot_normal) initialization. Biases are initialized with
     zeros.
     """
-    for param_name in gru_module._get_flat_weights_names():
+    for param_name in gru_module._parameters.keys():
         param_tensor = gru_module.__getattr__(param_name)
         if 'weight' in param_name:
             tensor_height = param_tensor.size(0) // 3
