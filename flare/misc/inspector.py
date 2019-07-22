@@ -31,6 +31,7 @@ def summarize(model: nn.Module,
               in_tensor: Union[List[torch.Tensor], torch.Tensor],
               batch_first: bool = True,
               inspect_custom: bool = False) -> None:
+    # TODO: Do not count repeated layer parameters twice
     """Prints the model layout.
 
     # Arguments
@@ -113,17 +114,20 @@ def summarize(model: nn.Module,
 
         longest_seq = max(len(in_shapes), len(out_shapes))
         for seq_idx in range(1, longest_seq):
-            left_padding = [' ' * 45]
+            extra_line = [' ' * 45]
             if seq_idx < len(in_shapes):
                 fmt_in = f'{in_shapes[seq_idx]:25} '
             else:
                 fmt_in = ' ' * 26
-            left_padding.append(fmt_in)
+            extra_line.append(fmt_in)
 
             if seq_idx < len(out_shapes):
-                left_padding.append(f'{out_shapes[seq_idx]:25}')
+                extra_line.append(f'{out_shapes[seq_idx]:25}')
 
-            print(''.join(left_padding))
+            print(''.join(extra_line))
+
+        if i < len(module_stack) - 1:
+            print('-' * 90)
     print('=' * 90)
 
     total_train = sum([layer['trainable'] for layer in module_stack.values()])
