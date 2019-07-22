@@ -27,9 +27,10 @@ class Callback:
         pass
 
     @staticmethod
-    def _log(message: str, v_threshold: int, verbose_level: int = 1):
+    def _log(message: str, v_threshold: int, verbose_level: int = 1, is_print: bool = False):
         if verbose_level <= v_threshold:
-            logging.info(message)
+            fn = print if is_print else logging.info
+            fn(message)
 
 
 class CallbacksContainer:
@@ -139,26 +140,42 @@ class EarlyStopping(MetricMonitorCallback):
 
 
 class Checkpoint(MetricMonitorCallback):
+    """Persits a model whenever `metric[t-1] - metric[t] < delta`
+
+    # Arguments
+        metric_name: The name of the metric to be watched.
+        min_delta: If the selected metric decreases by at least min_delta, the model is persisted.
+        increasing: If True persists the model whenever `metric[t-1] - metric[t] > delta` instead.
+        filename: Path to the model to be persisted. The extension `.pth` is automatically added.
+        save_best: If False, whenever the metric differences are smaller than `min_delta` a new file
+            is created. Otherwise a single file is overwritten.
+        weights_only: If True does not store the model structure.
+        verbosity: `0`: silent, `1`: notifies when the model is persisted.
+    """
     def __init__(self,
                  metric_name: str,
                  min_delta: float,
                  filename: str,
                  save_best: bool = True,
+                 increasing: bool = False,
                  weights_only: bool = False,
                  verbosity: int = 0):
         self.metric_name = metric_name
         self.min_delta = min_delta
+        self.increasing = increasing
 
         self.save_best = save_best
         self.weights_only = weights_only
         self.filename = filename
         self.verbosity = verbosity
 
-        self.previous_metric = np.inf
+        self.previous_metric = 0 if increasing else np.inf
 
     def on_epoch_end(self, epoch: int, logs: ModelHistory) -> None:
-        current_metric = self.get_metric('patience', self.metric_name, logs)
+        current_metric = self.get_metric('checkpoint', self.metric_name, logs)
         current_delta = self.previous_metric - current_metric
+        if self.increasing:
+            current_delta *= -1
 
         if current_delta >= self.min_delta:
             if self.save_best:
@@ -166,11 +183,12 @@ class Checkpoint(MetricMonitorCallback):
             else:
                 destination_filename = self.filename + f'_{epoch}.pth'
 
-            self.previous_metric = current_metric
             self._log(f'Saving model {destination_filename} ' +
                       f' - {self.metric_name} improved from ' +
                       f'{self.previous_metric} to {current_metric}',
-                      self.verbosity)
+                      self.verbosity,
+                      is_print=True)
+            self.previous_metric = current_metric
 
             if self.weights_only:
                 torch.save(logs.model.state_dict(), destination_filename)
