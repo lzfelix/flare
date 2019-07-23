@@ -31,7 +31,7 @@ def _normalize_metrics(metrics: dict, seen_samples: int) -> Dict[str, float]:
 def evaluate_on_loader(model: nn.Module,
                        eval_gen: DataLoader,
                        loss_fn: Any,
-                       batch_first: bool = True) -> Dict[str, float]:
+                       batch_first: bool = False) -> Dict[str, float]:
     """Computes the model metrics on some evaluation data.
 
     # Arguments
@@ -168,7 +168,7 @@ def train(model: nn.Module,
           optimizer: Optimizer,
           n_epochs: int,
           batch_size: int,
-          batch_first: bool = True,
+          batch_first: bool = False,
           validation_frac: Optional[float] = None,
           x_val: Optional[torch.Tensor] = None,
           y_val: Optional[torch.Tensor] = None,
@@ -255,7 +255,7 @@ def evaluate(model: nn.Module,
              y_eval: torch.Tensor,
              loss_fn,
              batch_size: int,
-             batch_first: bool = True) -> Dict[str, float]:
+             batch_first: bool = False) -> Dict[str, float]:
     """Computes the model metrics on some evaluation data.
 
     # Arguments
