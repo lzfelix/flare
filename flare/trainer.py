@@ -3,6 +3,7 @@ from collections import defaultdict
 
 import torch
 import numpy as np
+from tqdm import auto as tqdm
 
 from torch import nn
 from torch.optim import Optimizer
@@ -31,7 +32,8 @@ def _normalize_metrics(metrics: dict, seen_samples: int) -> Dict[str, float]:
 def evaluate_on_loader(model: nn.Module,
                        eval_gen: DataLoader,
                        loss_fn: Any,
-                       batch_first: bool = False) -> Dict[str, float]:
+                       batch_first: bool = False,
+                       verbosity: int = 1) -> Dict[str, float]:
     """Computes the model metrics on some evaluation data.
 
     # Arguments
@@ -41,6 +43,7 @@ def evaluate_on_loader(model: nn.Module,
             Its expected signature is `loss_fn(model_output, y_true)`.
         batch_first: For sequential data, if True data is expected to have the layout
              `[seq_len, batch_size, *]`, otherwise `[batch_size, seq_len, *]`.
+        verbosity: 0: silent, 1: show batch progress bar.
 
     # Returns
         The result of the model `metric()` method.
@@ -52,7 +55,12 @@ def evaluate_on_loader(model: nn.Module,
         seen_samples = 0
         eval_loss = 0
         eval_metrics = defaultdict(int)
-        for batch_id, batch_data in enumerate(eval_gen):
+
+        iterator = enumerate(eval_gen)
+        if verbosity > 0:
+            iterator = tqdm.tqdm(iterator, total=len(eval_gen))
+
+        for batch_id, batch_data in iterator:
             batch_features: list = batch_data[:-1]
             batch_labels: list = batch_data[-1]
             n_samples: int = batch_features[0].size(batch_index)
@@ -70,6 +78,33 @@ def evaluate_on_loader(model: nn.Module,
             # hence we can take any of them to figure out the batch size
             seen_samples += n_samples
     return _normalize_metrics(eval_metrics, seen_samples)
+
+
+def predict_on_loader(model: nn.Module,
+                      eval_gen: DataLoader,
+                      verbosity: int = 1) -> torch.Tensor:
+    """Performs model prediction
+
+    # Arguments
+        model: The PyTorch model to be evaluated.
+        eval_gen: Generator with data to be evaluated. It is assumed that
+            the its last yold element are the labels, which are disregarded.
+        verbosity: 0: silent, 1: show batch progress bar.
+
+    # Return
+        Tensor with all model outputs concatenated.
+    """
+    preds = list()
+    model.eval()
+    iterator = tqdm.tqdm(eval_gen) if verbosity else eval_gen
+
+    with torch.no_grad():
+        for batch_data in iterator:
+            batch_features: list = batch_data[:-1]
+            output = model(*batch_features)
+            preds.append(output)
+
+    return torch.cat(preds)
 
 
 def train_on_loader(model: nn.Module,
@@ -145,7 +180,7 @@ def train_on_loader(model: nn.Module,
         model_history.append_trn_logs(_normalize_metrics(training_metrics, seen_samples))
 
         if val_gen:
-            val_logs = evaluate_on_loader(model, val_gen, loss_fn, batch_first)
+            val_logs = evaluate_on_loader(model, val_gen, loss_fn, batch_first, verbosity=0)
 
             # Adding the val_ prefix and storing metrics over the entire validation data
             val_logs = {'val_' + m_name: m_value for m_name, m_value in val_logs.items()}
@@ -255,7 +290,8 @@ def evaluate(model: nn.Module,
              y_eval: torch.Tensor,
              loss_fn,
              batch_size: int,
-             batch_first: bool = False) -> Dict[str, float]:
+             batch_first: bool = False,
+             verbosity: int = 1) -> Dict[str, float]:
     """Computes the model metrics on some evaluation data.
 
     # Arguments
@@ -267,9 +303,10 @@ def evaluate(model: nn.Module,
         batch_size: How many samples there are in a batch. The last batch may be smaller.
         batch_first: For sequential data, if True data is expected to have the layout
              `[seq_len, batch_size, *]`, otherwise `[batch_size, seq_len, *]`.
+        verbosity: 0: silent, 1: show batch progress bar.
 
     # Returns
         The result of the model `metric()` method.
     """
     eval_gen = DataLoader(WrapperDataset(x_eval, y_eval), batch_size)
-    return evaluate_on_loader(model, eval_gen, loss_fn, batch_first)
+    return evaluate_on_loader(model, eval_gen, loss_fn, batch_first, verbosity)
