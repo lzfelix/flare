@@ -1,6 +1,7 @@
+import sys
+import inspect
 from collections import OrderedDict
 from typing import Union, List
-import inspect
 
 import torch
 from torch import nn
@@ -137,3 +138,4 @@ def summarize(model: nn.Module,
     print(f'Frozen params: {total_nontrain:,}')
     print('\n(?, ?, ?)* = Unpacked sequence shape')
     print('_' * 90)
+    sys.stdout.flush()
