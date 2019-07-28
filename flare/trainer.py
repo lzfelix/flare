@@ -114,7 +114,9 @@ def train_on_loader(model: nn.Module,
                     optimizer: Optimizer,
                     n_epochs: int,
                     batch_first: bool = False,
-                    callbacks: Optional[List[Callback]] = None) -> ModelHistory:
+                    callbacks: Optional[List[Callback]] = None,
+                    before_step=None,
+                    verbosity: int = 2) -> ModelHistory:
     """Trains a model using data from a DataLoader.
 
     # Arguments
@@ -128,17 +130,23 @@ def train_on_loader(model: nn.Module,
         batch_first: For sequential data, if True data is expected to have the layout
              `[seq_len, batch_size, *]`, otherwise `[batch_size, seq_len, *]`.
         callbacks: List of utility callbacks to help training the model.
-
+        verbosity: 0: silent, 1:show epoch progress bar, 2: show batch progress bar.
     # Return
         A ModelHistory object representing the model training history.
     """
 
     callbacks_container = CallbacksContainer(callbacks or [])
-    callbacks_container.append(ProgressBar(len(train_gen), n_epochs))
     batch_index = 0 if batch_first else 1
 
     model_history = ModelHistory(model)
-    for epoch in range(1, n_epochs + 1):
+
+    epoch_iterator = range(1, n_epochs + 1)
+    if verbosity == 1:
+        epoch_iterator = tqdm.tqdm(epoch_iterator, desc='Epoch')
+    elif verbosity == 2:
+        callbacks_container.append(ProgressBar(len(train_gen), n_epochs))
+
+    for epoch in epoch_iterator:
         model.train()
         callbacks_container.on_epoch_begin(epoch, model_history)
 
@@ -157,6 +165,10 @@ def train_on_loader(model: nn.Module,
             output = model(*batch_features)
             loss = loss_fn(output, batch_labels)
             loss.backward()
+
+            if before_step:
+                before_step(model, loss, optimizer)
+
             optimizer.step()
 
             # All feature matrices should have the same amount of sample entries,
@@ -208,7 +220,8 @@ def train(model: nn.Module,
           x_val: Optional[torch.Tensor] = None,
           y_val: Optional[torch.Tensor] = None,
           shuffle: bool = True,
-          callbacks: Optional[List[Callback]] = None) -> ModelHistory:
+          callbacks: Optional[List[Callback]] = None,
+          verbosity: int = 2) -> ModelHistory:
     """Trains a model using data in PyTorch tensors.
 
     This function expects the model to implement a `metric()` with the following
@@ -282,7 +295,8 @@ def train(model: nn.Module,
     else:
         loader_dev = None
 
-    return train_on_loader(model, loader_trn, loader_dev, loss_fn, optimizer, n_epochs, batch_first, callbacks)
+    return train_on_loader(model, loader_trn, loader_dev, loss_fn, optimizer, n_epochs, batch_first, callbacks,
+                           verbosity=verbosity)
 
 
 def evaluate(model: nn.Module,

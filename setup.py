@@ -6,7 +6,9 @@ setup(
     version='0.0.0',
     author='Luiz Felix',
     author_email='lzcfelix@gmail.com',
-    description='Flare - A lightweight interface to (py)Torch',
+    url='https://github.com/lzfelix/flare',
+    license='MIT',
+    description='Flare - Going faster with pyTorch',
     python_requires='>=3.6',
     packages=find_packages(),
     install_requires=[
