@@ -1,4 +1,5 @@
 from setuptools import setup
+from setuptools import find_packages
 
 setup(
     name='flare',
@@ -7,6 +8,7 @@ setup(
     author_email='lzcfelix@gmail.com',
     description='Flare - A lightweight interface to (py)Torch',
     python_requires='>=3.6',
+    packages=find_packages(),
     install_requires=[
         'numpy>=1.14.5',
         'torch>=1.0.0',
