@@ -33,6 +33,7 @@ def evaluate_on_loader(model: nn.Module,
                        eval_gen: DataLoader,
                        loss_fn: Any,
                        batch_first: bool = False,
+                       device: torch.device = torch.device('cpu'),
                        verbosity: int = 1) -> Dict[str, float]:
     """Computes the model metrics on some evaluation data.
 
@@ -43,6 +44,7 @@ def evaluate_on_loader(model: nn.Module,
             Its expected signature is `loss_fn(model_output, y_true)`.
         batch_first: For sequential data, if True data is expected to have the layout
              `[seq_len, batch_size, *]`, otherwise `[batch_size, seq_len, *]`.
+        device:
         verbosity: 0: silent, 1: show batch progress bar.
 
     # Returns
@@ -62,8 +64,11 @@ def evaluate_on_loader(model: nn.Module,
 
         for batch_id, batch_data in iterator:
             batch_features: list = batch_data[:-1]
-            batch_labels: list = batch_data[-1]
+            batch_labels = batch_data[-1]
             n_samples: int = batch_features[0].size(batch_index)
+
+            batch_features = [ft.to(device) for ft in batch_features]
+            batch_labels = batch_labels.to(device)
 
             output = model(*batch_features)
             batch_metrics = model.metric(output, batch_labels)
@@ -82,6 +87,7 @@ def evaluate_on_loader(model: nn.Module,
 
 def predict_on_loader(model: nn.Module,
                       eval_gen: DataLoader,
+                      device: torch.device = torch.device('cpu'),
                       verbosity: int = 1) -> torch.Tensor:
     """Performs model prediction
 
@@ -89,6 +95,7 @@ def predict_on_loader(model: nn.Module,
         model: The PyTorch model to be evaluated.
         eval_gen: Generator with data to be evaluated. It is assumed that
             the its last yold element are the labels, which are disregarded.
+        device:
         verbosity: 0: silent, 1: show batch progress bar.
 
     # Return
@@ -100,7 +107,7 @@ def predict_on_loader(model: nn.Module,
 
     with torch.no_grad():
         for batch_data in iterator:
-            batch_features: list = batch_data[:-1]
+            batch_features = [ft.to(device) for ft in batch_data[:-1]]
             output = model(*batch_features)
             preds.append(output)
 
@@ -114,6 +121,7 @@ def train_on_loader(model: nn.Module,
                     optimizer: Optimizer,
                     n_epochs: int,
                     batch_first: bool = False,
+                    device: torch.device = torch.device('cpu'),
                     callbacks: Optional[List[Callback]] = None,
                     before_step=None,
                     verbosity: int = 2) -> ModelHistory:
@@ -129,6 +137,7 @@ def train_on_loader(model: nn.Module,
         n_epochs: How many passes should be performed over the train_gen.
         batch_first: For sequential data, if True data is expected to have the layout
              `[seq_len, batch_size, *]`, otherwise `[batch_size, seq_len, *]`.
+        device:
         callbacks: List of utility callbacks to help training the model.
         verbosity: 0: silent, 1:show epoch progress bar, 2: show batch progress bar.
     # Return
@@ -159,7 +168,10 @@ def train_on_loader(model: nn.Module,
 
             # even if batch_data = [x, y], batch_features = [x] and batch_y = [y]
             batch_features: list = batch_data[:-1]
-            batch_labels: list = batch_data[-1]
+            batch_labels = batch_data[-1]
+
+            batch_features = [ft.to(device) for ft in batch_features]
+            batch_labels = batch_labels.to(device)
 
             optimizer.zero_grad()
             output = model(*batch_features)
@@ -192,7 +204,7 @@ def train_on_loader(model: nn.Module,
         model_history.append_trn_logs(_normalize_metrics(training_metrics, seen_samples))
 
         if val_gen:
-            val_logs = evaluate_on_loader(model, val_gen, loss_fn, batch_first, verbosity=0)
+            val_logs = evaluate_on_loader(model, val_gen, loss_fn, batch_first, device, verbosity=0)
 
             # Adding the val_ prefix and storing metrics over the entire validation data
             val_logs = {'val_' + m_name: m_value for m_name, m_value in val_logs.items()}
@@ -216,6 +228,7 @@ def train(model: nn.Module,
           n_epochs: int,
           batch_size: int,
           batch_first: bool = False,
+          device: torch.device = torch.device('cpu'),
           validation_frac: Optional[float] = None,
           x_val: Optional[torch.Tensor] = None,
           y_val: Optional[torch.Tensor] = None,
@@ -295,7 +308,7 @@ def train(model: nn.Module,
     else:
         loader_dev = None
 
-    return train_on_loader(model, loader_trn, loader_dev, loss_fn, optimizer, n_epochs, batch_first, callbacks,
+    return train_on_loader(model, loader_trn, loader_dev, loss_fn, optimizer, n_epochs, batch_first, device, callbacks,
                            verbosity=verbosity)
 
 
@@ -305,6 +318,7 @@ def evaluate(model: nn.Module,
              loss_fn,
              batch_size: int,
              batch_first: bool = False,
+             device: torch.device = torch.device('cpu'),
              verbosity: int = 1) -> Dict[str, float]:
     """Computes the model metrics on some evaluation data.
 
@@ -317,10 +331,11 @@ def evaluate(model: nn.Module,
         batch_size: How many samples there are in a batch. The last batch may be smaller.
         batch_first: For sequential data, if True data is expected to have the layout
              `[seq_len, batch_size, *]`, otherwise `[batch_size, seq_len, *]`.
+        device:
         verbosity: 0: silent, 1: show batch progress bar.
 
     # Returns
         The result of the model `metric()` method.
     """
     eval_gen = DataLoader(WrapperDataset(x_eval, y_eval), batch_size)
-    return evaluate_on_loader(model, eval_gen, loss_fn, batch_first, verbosity)
+    return evaluate_on_loader(model, eval_gen, loss_fn, batch_first, device, verbosity)
