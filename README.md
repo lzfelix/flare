@@ -81,3 +81,10 @@ pip install git+https://github.com/lzfelix/flare
 
 * Accuracy is computed over the entire training/evaluation dataset;
 * Other metrics are displayed as the average obtained in each batch (including during eval mode).
+
+## FAQ
+
+  1. When using JupyterLab or JupyterNotebook progress bars are not properly displayed.
+
+> Please see: https://ipywidgets.readthedocs.io/en/stable/user_install.html. Notice that you must install the `ipywidgets` package, the `nodejs` module and `labextension`.
+
