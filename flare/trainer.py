@@ -1,4 +1,4 @@
-from typing import List, Dict, Optional, Any
+from typing import List, Tuple, Dict, Optional, Any, Union
 from collections import defaultdict
 
 import torch
@@ -29,11 +29,24 @@ def _normalize_metrics(metrics: dict, seen_samples: int) -> Dict[str, float]:
     return normalized
 
 
+def _move_to_device(something: Union[torch.Tensor, List, Tuple],
+                    device: Optional[torch.device]) -> Union[torch.Tensor, List, Tuple]:
+    # It is reasonable to assume that something is not a nested list
+    if not device:
+        return something
+
+    if isinstance(something, (list, tuple)):
+        something = [s.to(device) for s in something]
+    else:
+        something = something.to(device)
+    return something
+
+
 def evaluate_on_loader(model: nn.Module,
                        eval_gen: DataLoader,
                        loss_fn: Any,
                        batch_first: bool = False,
-                       device: torch.device = torch.device('cpu'),
+                       device: Optional[torch.device] = torch.device('cpu'),
                        verbosity: int = 1) -> Dict[str, float]:
     """Computes the model metrics on some evaluation data.
 
@@ -87,7 +100,7 @@ def evaluate_on_loader(model: nn.Module,
 
 def predict_on_loader(model: nn.Module,
                       eval_gen: DataLoader,
-                      device: torch.device = torch.device('cpu'),
+                      device: Optional[torch.device] = torch.device('cpu'),
                       verbosity: int = 1) -> torch.Tensor:
     """Performs model prediction
 
@@ -99,7 +112,8 @@ def predict_on_loader(model: nn.Module,
         verbosity: 0: silent, 1: show batch progress bar.
 
     # Return
-        Tensor with all model outputs concatenated.
+        y_hat: Tensor with shape `[total_samples, *]`, as all model outputs are
+        concatenated in the first axis.
     """
     preds = list()
     model.eval()
@@ -121,7 +135,7 @@ def train_on_loader(model: nn.Module,
                     optimizer: Optimizer,
                     n_epochs: int,
                     batch_first: bool = False,
-                    device: torch.device = torch.device('cpu'),
+                    device: Optional[torch.device] = torch.device('cpu'),
                     callbacks: Optional[List[Callback]] = None,
                     before_step=None,
                     verbosity: int = 2) -> ModelHistory:
@@ -170,7 +184,7 @@ def train_on_loader(model: nn.Module,
             batch_features: list = batch_data[:-1]
             batch_labels = batch_data[-1]
 
-            batch_features = [ft.to(device) for ft in batch_features]
+            batch_features = [_move_to_device(ft, device) for ft in batch_features]
             batch_labels = batch_labels.to(device)
 
             optimizer.zero_grad()
@@ -228,7 +242,7 @@ def train(model: nn.Module,
           n_epochs: int,
           batch_size: int,
           batch_first: bool = False,
-          device: torch.device = torch.device('cpu'),
+          device: Optional[torch.device] = torch.device('cpu'),
           validation_frac: Optional[float] = None,
           x_val: Optional[torch.Tensor] = None,
           y_val: Optional[torch.Tensor] = None,
@@ -308,7 +322,8 @@ def train(model: nn.Module,
     else:
         loader_dev = None
 
-    return train_on_loader(model, loader_trn, loader_dev, loss_fn, optimizer, n_epochs, batch_first, device, callbacks,
+    return train_on_loader(model, loader_trn, loader_dev, loss_fn, optimizer,
+                           n_epochs, batch_first, device, callbacks,
                            verbosity=verbosity)
 
 
@@ -318,7 +333,7 @@ def evaluate(model: nn.Module,
              loss_fn,
              batch_size: int,
              batch_first: bool = False,
-             device: torch.device = torch.device('cpu'),
+             device: Optional[torch.device] = torch.device('cpu'),
              verbosity: int = 1) -> Dict[str, float]:
     """Computes the model metrics on some evaluation data.
 
