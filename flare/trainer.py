@@ -64,8 +64,9 @@ def evaluate_on_loader(model: nn.Module,
         The result of the model `metric()` method.
     """
     batch_index = 0 if batch_first else 1
-
+    was_previously_training = model.training
     model.eval()
+
     with torch.no_grad():
         seen_samples = 0
         eval_loss = 0
@@ -95,6 +96,10 @@ def evaluate_on_loader(model: nn.Module,
             # All feature matrices should have the same amount of sample entries,
             # hence we can take any of them to figure out the batch size
             seen_samples += n_samples
+
+    if was_previously_training:
+        model.train()
+
     return _normalize_metrics(eval_metrics, seen_samples)
 
 
@@ -116,15 +121,18 @@ def predict_on_loader(model: nn.Module,
         concatenated in the first axis.
     """
     preds = list()
+    was_previously_training = model.training
     model.eval()
-    iterator = tqdm.tqdm(eval_gen) if verbosity else eval_gen
 
+    iterator = tqdm.tqdm(eval_gen) if verbosity else eval_gen
     with torch.no_grad():
         for batch_data in iterator:
             batch_features = [ft.to(device) for ft in batch_data[:-1]]
             output = model(*batch_features)
             preds.append(output)
 
+    if was_previously_training:
+        model.train()
     return torch.cat(preds)
 
 
